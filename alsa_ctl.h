@@ -5,6 +5,7 @@
 #include <alsa/asoundlib.h>
 
 #define HW_PLAY_DEVICE "plughw:0,0"
+#define WAV_RECOVER_DROP_SIZE 128 //wav 파일 drop 발생시 얼마만큼 뒤로 갈것인지
 
 typedef enum
 {

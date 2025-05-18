@@ -261,8 +261,9 @@ static int start_wav_conversion()
     int loop = 0;
     int conversion_flag = FLAG_OFF;
     int len = 0;
-    int drop_flag = 0;
-    uint64_t play_size = 0;
+    int pause_work_flag = 0;
+    int64_t play_size = 0;
+    uint32_t header_size = 0;
 
     if (check_file_change() < 0) // 파일이 같은지 체크
     {
@@ -287,12 +288,16 @@ static int start_wav_conversion()
         return -1;
     }
 
+    header_size = sizeof(header);
+
     for (loop = 0; loop < 1024; loop++)
     {
         if (memcmp(header.packet.sub_chunk2_id, "data", sizeof(header.packet.sub_chunk2_id)) != 0)
         {
             printd("expand header detected");
+            header_size += sizeof(header.packet.sub_chunk2_id) + sizeof(header.packet.sub_chunk2_size) + header.packet.sub_chunk2_size;
             lseek(fd, header.packet.sub_chunk2_size, SEEK_CUR);
+
             if (read(fd, &header.packet.sub_chunk2_id, sizeof(header.packet.sub_chunk2_id)) < 0)
             {
                 printr("[%s]", wav_info.file_route);
@@ -330,7 +335,7 @@ static int start_wav_conversion()
 
         printf_wav_info(&header);
         printd("파라미터 설정 완료 [%s]", HW_PLAY_DEVICE);
-        printd("재생 시작 [%s]", wav_info.file_route);
+        printd("헤더 크기 [%d], 재생 시작 [%s]", header_size, wav_info.file_route);
 
         while (1)
         {
@@ -340,10 +345,17 @@ static int start_wav_conversion()
             }
             else if (get_alsa_flag(ALSA_PAUSE_FLAG) == FLAG_ON)
             {
-                if(drop_flag == FLAG_ON)
+                if(pause_work_flag == FLAG_ON)
                 {
-                    drop_pcm();
-                    drop_flag = FLAG_OFF;
+                    play_size -= sizeof(data) * WAV_RECOVER_DROP_SIZE; //drop시 버린 버퍼 복구
+                    if(play_size < 0)
+                    {
+                        play_size = 0;
+                    }
+                    lseek(fd, header_size + play_size, SEEK_SET);
+
+                    drop_pcm();                    
+                    pause_work_flag = FLAG_OFF;
                 }
                 continue;
             }
@@ -355,14 +367,14 @@ static int start_wav_conversion()
             }
             else if (len < sizeof(data))
             {
-                drop_flag = FLAG_ON;
+                pause_work_flag = FLAG_ON;
                 printd("audio 재생 끝");
                 play_pcm(data, len);
                 break;
             }
             else
             {
-                drop_flag = FLAG_ON;
+                pause_work_flag = FLAG_ON;
                 play_size += len;
                 print_cordinate("18", "0", "재생중[%ld%%]", (play_size * 100) / (uint64_t)header.packet.sub_chunk2_size);
                 play_pcm(data, len);
