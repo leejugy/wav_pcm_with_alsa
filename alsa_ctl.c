@@ -348,10 +348,7 @@ static int start_wav_conversion()
                 if(pause_work_flag == FLAG_ON)
                 {
                     play_size -= sizeof(data) * WAV_RECOVER_DROP_SIZE; //drop시 버린 버퍼 복구
-                    if(play_size < 0)
-                    {
-                        play_size = 0;
-                    }
+                    play_size = (play_size < 0) ? 0 : play_size;
                     lseek(fd, header_size + play_size, SEEK_SET);
 
                     drop_pcm();                    
