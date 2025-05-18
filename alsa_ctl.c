@@ -1,7 +1,7 @@
 #include "alsa_ctl.h"
 #include "define.h"
 
-//todo mixer로 sw 볼륨 조절해보기
+// todo mixer로 sw 볼륨 조절해보기
 
 alsa_ctl_t alsa_ctl = {
     0,
@@ -77,7 +77,6 @@ static int drop_pcm()
         printr("fail to pcm drop : %s", snd_strerror(ret));
     }
 }
-
 
 static int set_hw_params()
 {
@@ -157,17 +156,17 @@ static int play_pcm(uint8_t *buf, size_t buf_size)
         }
         if ((ret = snd_pcm_writei(wav_info.pcm_handle, &buf[loop * frame_size], frames)) < 0)
         {
-            if (ret == -EAGAIN) //비동기 입력시 에러
+            if (ret == -EAGAIN) // 비동기 입력시 에러
             {
                 continue;
             }
-            else if (ret == -EPIPE) //언더런(쓰기의 경우), 오버런(읽기의 경우)
+            else if (ret == -EPIPE) // 언더런(쓰기의 경우), 오버런(읽기의 경우)
             {
                 printr("pcm write underrun : %s", snd_strerror(ret));
                 snd_pcm_recover(wav_info.pcm_handle, ret, 0);
                 snd_pcm_prepare(wav_info.pcm_handle);
             }
-            else if (ret == -ESTRPIPE) //멈추거나 했을 경우 [snd_pcm_pause - 드라이버에 따라 구현 안됐을 수 있음]
+            else if (ret == -ESTRPIPE) // 멈추거나 했을 경우 [snd_pcm_pause - 드라이버에 따라 구현 안됐을 수 있음]
             {
                 printr("pcm write suspend : %s", snd_strerror(ret));
                 snd_pcm_recover(wav_info.pcm_handle, ret, 0);
@@ -247,23 +246,87 @@ static int check_file_change()
     }
 }
 
-static int start_wav_conversion()
+static int play_wav(int header_size, wav_file_header_u *header)
 {
+    int64_t play_size = 0;
+    int pause_work_flag = 0;
+
     uint8_t data[4096] = {
         0,
     };
+    int len = 0;
+
+    if (conversion_wav_file(header) < 0)
+    {
+        printr("audio format is not pcm type...");
+        return -1;
+    }
+
+    if (set_hw_params(&wav_info) < 0)
+    {
+        printr("hw parameter set fail");
+        return -1;
+    }
+
+    printf_wav_info(header);
+    printd("파라미터 설정 완료 [%s]", HW_PLAY_DEVICE);
+    printd("헤더 크기 [%d], 재생 시작 [%s]", header_size, wav_info.file_route);
+
+    while (1)
+    {
+        if (get_alsa_flag(ALSA_ABORT_FLAG) == FLAG_ON)
+        {
+            break;
+        }
+        else if (get_alsa_flag(ALSA_PAUSE_FLAG) == FLAG_ON)
+        {
+            if (pause_work_flag == FLAG_ON)
+            {
+                play_size -= sizeof(data) * WAV_RECOVER_DROP_SIZE; // drop시 버린 버퍼 복구
+                play_size = (play_size < 0) ? 0 : play_size;
+                lseek(wav_info.fd, header_size + play_size, SEEK_SET);
+
+                drop_pcm();
+                pause_work_flag = FLAG_OFF;
+            }
+            continue;
+        }
+
+        len = read(wav_info.fd, data, sizeof(data));
+        if (len < 0)
+        {
+            printr("fail to read : %s", strerror(errno));
+        }
+        else if (len < sizeof(data))
+        {
+            pause_work_flag = FLAG_ON;
+            printd("audio 재생 끝");
+            play_pcm(data, len);
+            break;
+        }
+        else
+        {
+            pause_work_flag = FLAG_ON;
+            play_size += len;
+            print_cordinate("18", "0", "재생중[%ld%%]", (play_size * 100) / (uint64_t)header->packet.sub_chunk2_size);
+            play_pcm(data, len);
+        }
+    }
+
+    close(wav_info.fd);
+    return 1;
+}
+
+static int start_wav_conversion()
+{
     uint64_t file_size = 0;
     wav_file_header_u header = {
         0,
     };
 
-    int fd = 0;
     int loop = 0;
     int conversion_flag = FLAG_OFF;
-    int len = 0;
-    int pause_work_flag = 0;
-    int64_t play_size = 0;
-    uint32_t header_size = 0;
+    int header_size = 0;
 
     if (check_file_change() < 0) // 파일이 같은지 체크
     {
@@ -274,21 +337,21 @@ static int start_wav_conversion()
         printd("file change");
     }
 
-    if ((fd = open(wav_info.file_route, O_RDONLY)) < 0)
+    if ((wav_info.fd = open(wav_info.file_route, O_RDONLY)) < 0)
     {
         printr("[%s]", wav_info.file_route);
         perror("fail to open wav");
         return -1;
     }
 
-    if (read(fd, &header, sizeof(header)) < 0)
+    if (read(wav_info.fd, &header, sizeof(header)) < 0)
     {
         printr("[%s]", wav_info.file_route);
         perror("fail to read file");
         return -1;
     }
 
-    header_size = sizeof(header);
+    header_size += sizeof(header);
 
     for (loop = 0; loop < 1024; loop++)
     {
@@ -296,15 +359,15 @@ static int start_wav_conversion()
         {
             printd("expand header detected");
             header_size += sizeof(header.packet.sub_chunk2_id) + sizeof(header.packet.sub_chunk2_size) + header.packet.sub_chunk2_size;
-            lseek(fd, header.packet.sub_chunk2_size, SEEK_CUR);
+            lseek(wav_info.fd, header.packet.sub_chunk2_size, SEEK_CUR);
 
-            if (read(fd, &header.packet.sub_chunk2_id, sizeof(header.packet.sub_chunk2_id)) < 0)
+            if (read(wav_info.fd, &header.packet.sub_chunk2_id, sizeof(header.packet.sub_chunk2_id)) < 0)
             {
                 printr("[%s]", wav_info.file_route);
                 perror("fail to read file");
                 return -1;
             }
-            if (read(fd, &header.packet.sub_chunk2_size, sizeof(header.packet.sub_chunk2_size)) < 0)
+            if (read(wav_info.fd, &header.packet.sub_chunk2_size, sizeof(header.packet.sub_chunk2_size)) < 0)
             {
                 printr("[%s]", wav_info.file_route);
                 perror("fail to read file");
@@ -321,64 +384,7 @@ static int start_wav_conversion()
 
     if (conversion_flag == FLAG_ON)
     {
-        if (conversion_wav_file(&header) < 0)
-        {
-            printr("audio format is not pcm type...");
-            return -1;
-        }
-
-        if (set_hw_params(&wav_info) < 0)
-        {
-            printr("hw parameter set fail");
-            return -1;
-        }
-
-        printf_wav_info(&header);
-        printd("파라미터 설정 완료 [%s]", HW_PLAY_DEVICE);
-        printd("헤더 크기 [%d], 재생 시작 [%s]", header_size, wav_info.file_route);
-
-        while (1)
-        {
-            if (get_alsa_flag(ALSA_ABORT_FLAG) == FLAG_ON)
-            {
-                break;
-            }
-            else if (get_alsa_flag(ALSA_PAUSE_FLAG) == FLAG_ON)
-            {
-                if(pause_work_flag == FLAG_ON)
-                {
-                    play_size -= sizeof(data) * WAV_RECOVER_DROP_SIZE; //drop시 버린 버퍼 복구
-                    play_size = (play_size < 0) ? 0 : play_size;
-                    lseek(fd, header_size + play_size, SEEK_SET);
-
-                    drop_pcm();                    
-                    pause_work_flag = FLAG_OFF;
-                }
-                continue;
-            }
-
-            len = read(fd, data, sizeof(data));
-            if (len < 0)
-            {
-                printr("fail to read : %s", strerror(errno));
-            }
-            else if (len < sizeof(data))
-            {
-                pause_work_flag = FLAG_ON;
-                printd("audio 재생 끝");
-                play_pcm(data, len);
-                break;
-            }
-            else
-            {
-                pause_work_flag = FLAG_ON;
-                play_size += len;
-                print_cordinate("18", "0", "재생중[%ld%%]", (play_size * 100) / (uint64_t)header.packet.sub_chunk2_size);
-                play_pcm(data, len);
-            }
-        }
-
-        close(fd);
+        play_wav(header_size, &header);
         return 1;
     }
 

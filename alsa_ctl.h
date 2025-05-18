@@ -43,6 +43,7 @@ typedef struct
     int format;
     int channels;
     int rate;
+    int fd;
     snd_pcm_t *pcm_handle;
     snd_pcm_hw_params_t *pcm_hw_params;
     char file_route[256];
