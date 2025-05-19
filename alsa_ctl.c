@@ -424,7 +424,7 @@ static int play_wav(int header_size, wav_file_header_u *header)
         {
             pause_work_flag = FLAG_ON;
             play_size += len;
-            print_cordinate("18", "0", "재생중[%ld%%]", (play_size * 100) / (uint64_t)header->packet.sub_chunk2_size);
+            print_cordinate("18", "1", "재생중[%ld%%]", (play_size * 100) / (uint64_t)header->packet.sub_chunk2_size);
             play_pcm(data, len);
         }
     }
