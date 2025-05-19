@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "menu_ctl.h": "c",
+        "alsa_ctl.h": "c"
+    }
+}

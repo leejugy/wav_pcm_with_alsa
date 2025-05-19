@@ -3,20 +3,50 @@
 
 int menu_num = 0;
 
+static int printf_file(char *file_route, char *file_name)
+{
+    char dir_content[4096] = {0, };
+    int count = 0;
+    DIR *dir = NULL;
+    struct dirent *dir_info = NULL;
+    
+    if((dir = opendir(file_route)) == NULL)
+    {
+        printr("fail to print file : %s", strerror(errno));
+        return -1;
+    }
+    
+    while((dir_info = readdir(dir)) != NULL)
+    {
+        if(strstr(dir_info->d_name, file_name) != 0)
+        {
+            sprintf(&dir_content[strlen(dir_content)], "%s ", dir_info->d_name);
+            if((count++ % 5) == 4)
+            {
+                sprintf(&dir_content[strlen(dir_content)], "\n");
+            }
+        }
+    }
+
+    print_cordinate("2", "1", "%s", dir_content);
+}
+
 static void print_menu_list()
 {
     if(system("clear") < 0)
     {
         printr("fail to clear screen : %s", strerror(errno));
     }
-    printf("[음악 메뉴]=====================\n");
-    printf("1. 음악 재생\n");
-    printf("2. 재시작\n");
-    printf("3. 일시정지\n");
-    printf("4. 계속\n");
-    printf("5. 중단\n");
-    printf("6. 볼륨 설정\n");
-    printf("===============================\n");
+    print_cordinate("1","1","===============================");
+    printf_file("/root", ".wav");
+    print_cordinate("4","1","[음악 메뉴]=====================");
+    print_cordinate("5","1","1. 음악 재생");
+    print_cordinate("6","1","2. 재시작");
+    print_cordinate("7","1","3. 일시정지");
+    print_cordinate("8","1","4. 계속");
+    print_cordinate("9","1","5. 중단");
+    print_cordinate("10","1","6. 볼륨 설정");
+    print_cordinate("11","1","===============================");
 }
 
 static void play_music_menu()

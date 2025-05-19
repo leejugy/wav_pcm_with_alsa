@@ -29,7 +29,7 @@ static int bit_swap(uint8_t *buf, int bit_size)
         buf[loop1] = temp;
     }
     
-    return 1;f
+    return 1;
 }
 #endif
 
