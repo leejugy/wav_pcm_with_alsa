@@ -15,6 +15,7 @@ static void print_menu_list()
     printf("3. 일시정지\n");
     printf("4. 계속\n");
     printf("5. 중단\n");
+    printf("6. 볼륨 설정\n");
     printf("===============================\n");
 }
 
@@ -24,9 +25,7 @@ static void play_music_menu()
     int ret = 0;
 
     printf("음악 경로 입력 : ");
-    memset(temp_route, 0, sizeof(temp_route));
-    ret = scanf("%s", temp_route);
-    (void) ret;
+    ret = scanf("%s", temp_route); (void) ret;
     set_file_route(temp_route);
     start_playing_wav();
 }
@@ -51,6 +50,16 @@ static void abort_music_menu()
     abort_playing_wav();
 }
 
+static void volume_control_menu()
+{
+    char volume[256] = {0, };
+    int ret = 0;
+
+    printf("볼륨 입력(0 ~ 100) : ");
+    ret = scanf("%s", volume); (void) ret;
+    set_audio_volume(atoi(volume));
+}
+
 static void process_menu(int menu_num)
 {
     switch (menu_num)
@@ -64,13 +73,14 @@ static void process_menu(int menu_num)
     case 3:
         pause_music_menu();
         break;
-
     case 4:
         continue_music_menu();
         break;
-
     case 5:
         abort_music_menu();
+        break;
+    case 6:
+        volume_control_menu();
         break;
     
     default:

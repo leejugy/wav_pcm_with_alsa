@@ -3,7 +3,7 @@
 
 // todo mixer로 sw 볼륨 조절해보기
 
-alsa_ctl_t alsa_ctl = {
+audio_ctl_t audio_ctl = {
     0,
 };
 wav_info_t wav_info = {
@@ -29,24 +29,48 @@ static int bit_swap(uint8_t *buf, int bit_size)
         buf[loop1] = temp;
     }
     
-    return 1;
+    return 1;f
 }
 #endif
 
-static int get_alsa_flag(ALSA_FLAGS flag)
+static int get_audio_flag(AUDIO_FLAGS flag)
 {
     int ret = 0;
-    sem_wait(&alsa_ctl.sem);
-    ret = alsa_ctl.alsa_flag[flag];
-    sem_post(&alsa_ctl.sem);
+    sem_wait(&audio_ctl.sem);
+    ret = audio_ctl.audio_flag[flag];
+    sem_post(&audio_ctl.sem);
     return ret;
 }
 
-static void set_alsa_flag(ALSA_FLAGS flag, int flag_val)
+static void set_audio_flag(AUDIO_FLAGS flag, int flag_val)
 {
-    sem_wait(&alsa_ctl.sem);
-    alsa_ctl.alsa_flag[flag] = flag_val;
-    sem_post(&alsa_ctl.sem);
+    sem_wait(&audio_ctl.sem);
+    audio_ctl.audio_flag[flag] = flag_val;
+    sem_post(&audio_ctl.sem);
+}
+
+void set_audio_volume(int audio_val)
+{
+    sem_wait(&audio_ctl.sem);
+    if (audio_val > 100)
+    {
+        audio_val = 100;
+    }
+    if (audio_val < 0)
+    {
+        audio_val = 0;
+    }
+    audio_ctl.volume = (float)audio_val / (100.0);
+    sem_post(&audio_ctl.sem);
+}
+
+float get_audio_volume()
+{
+    float ret = 0;
+    sem_wait(&audio_ctl.sem);
+    ret = audio_ctl.volume;
+    sem_post(&audio_ctl.sem);
+    return ret;
 }
 
 static void printf_wav_info(wav_file_header_u *header)
@@ -76,6 +100,19 @@ static int drop_pcm()
     {
         printr("fail to pcm drop : %s", snd_strerror(ret));
     }
+    return ret;
+}
+
+static int close_pcm()
+{
+    int ret = 0;
+
+    if ((ret = snd_pcm_close(wav_info.pcm_handle)) < 0)
+    {
+        printr("fail to pcm close : %s", snd_strerror(ret));
+    }
+
+    return ret;
 }
 
 static int set_hw_params()
@@ -128,6 +165,78 @@ static int set_hw_params()
     snd_pcm_hw_params_free(wav_info.pcm_hw_params);
     return 1;
 }
+static void volume_control_u8(uint8_t *buf, size_t buf_size)
+{
+    int loop = 0;
+
+    for (loop = 0; loop < buf_size; loop++)
+    {
+        buf[loop] *= get_audio_volume();
+    }
+}
+
+static void volume_control_s16(int16_t *buf, size_t buf_size)
+{
+    int loop = 0;
+
+    for (loop = 0; loop < buf_size / sizeof(uint16_t); loop++)
+    {
+        buf[loop] *= get_audio_volume();
+    }
+}
+
+#define sizeof_s24 3
+static void volume_control_s24(uint8_t *buf, size_t buf_size)
+{
+    int loop = 0;
+    int32_t temp = 0;
+
+    for (loop = 0; loop < buf_size / sizeof_s24; loop += sizeof_s24)
+    {
+        temp = (buf[loop + 2] << 24) + (buf[loop + 1] << 16) + (buf[loop] << 8);
+        temp >>= 8; // 부호 확장
+        temp *= get_audio_volume();
+
+        buf[loop + 2] = (temp >> 16) & 0xff;
+        buf[loop + 1] = (temp >> 8) & 0xff;
+        buf[loop] = temp & 0xff;
+    }
+}
+
+static void volume_control_s32(int32_t *buf, size_t buf_size)
+{
+    int loop = 0;
+
+    for (loop = 0; loop < buf_size / sizeof(uint32_t); loop++)
+    {
+        buf[loop] *= get_audio_volume();
+    }
+}
+
+static void volume_control(void *buf, size_t buf_size)
+{
+    switch (wav_info.format)
+    {
+    case SND_PCM_FORMAT_U8:
+        volume_control_u8(buf, buf_size);
+        break;
+
+    case SND_PCM_FORMAT_S16_LE:
+        volume_control_s16(buf, buf_size);
+        break;
+
+    case SND_PCM_FORMAT_S24_LE:
+        volume_control_s24(buf, buf_size);
+        break;
+
+    case SND_PCM_FORMAT_S32_LE:
+        volume_control_s32(buf, buf_size);
+        break;
+
+    default:
+        break;
+    }
+}
 
 static int play_pcm(uint8_t *buf, size_t buf_size)
 {
@@ -136,7 +245,7 @@ static int play_pcm(uint8_t *buf, size_t buf_size)
     int frames = 0;
     int loop = 0;
 
-    if (get_alsa_flag(ALSA_PAUSE_FLAG) == FLAG_ON)
+    if (get_audio_flag(ALSA_PAUSE_FLAG) == FLAG_ON)
     {
         return 1;
     }
@@ -144,13 +253,15 @@ static int play_pcm(uint8_t *buf, size_t buf_size)
     frame_size = (wav_info.channels * (snd_pcm_format_width(wav_info.format) / 8));
     frames = buf_size / frame_size;
 
+    volume_control((void *)buf, buf_size);
+
     while (1)
     {
-        if (get_alsa_flag(ALSA_ABORT_FLAG) == FLAG_ON)
+        if (get_audio_flag(ALSA_ABORT_FLAG) == FLAG_ON)
         {
             return 1;
         }
-        else if (get_alsa_flag(ALSA_PAUSE_FLAG) == FLAG_ON)
+        else if (get_audio_flag(ALSA_PAUSE_FLAG) == FLAG_ON)
         {
             return 1;
         }
@@ -163,7 +274,7 @@ static int play_pcm(uint8_t *buf, size_t buf_size)
             else if (ret == -EPIPE) // 언더런(쓰기의 경우), 오버런(읽기의 경우)
             {
                 printr("pcm write underrun : %s", snd_strerror(ret));
-                snd_pcm_recover(wav_info.pcm_handle, ret, 0);
+                snd_pcm_recover(wav_info.pcm_handle, ret, 0); // 드라이버 버그가 있는 듯? 리커버해도 복구 안됨
                 return -1;
             }
             else if (ret == -ESTRPIPE) // 멈추거나 했을 경우 [snd_pcm_pause - 드라이버에 따라 구현 안됐을 수 있음]
@@ -267,7 +378,7 @@ static int play_wav(int header_size, wav_file_header_u *header)
         return -1;
     }
 
-    if(system("clear") < 0)
+    if (system("clear") < 0)
     {
         printr("fail to clear : %s", strerror(errno));
         return -1;
@@ -278,19 +389,20 @@ static int play_wav(int header_size, wav_file_header_u *header)
 
     while (1)
     {
-        if (get_alsa_flag(ALSA_ABORT_FLAG) == FLAG_ON)
+        if (get_audio_flag(ALSA_ABORT_FLAG) == FLAG_ON)
         {
             break;
         }
-        else if (get_alsa_flag(ALSA_PAUSE_FLAG) == FLAG_ON)
+        else if (get_audio_flag(ALSA_PAUSE_FLAG) == FLAG_ON)
         {
             if (pause_work_flag == FLAG_ON)
             {
-                play_size -= sizeof(data) * WAV_RECOVER_DROP_SIZE; // drop시 버린 버퍼 복구
+                play_size -= sizeof(data) * WAV_RECOVER_DROP_SIZE; // drop시 버린 버퍼 복구, 파일 오프셋 뒤로 이동 ㄱㄱ
                 play_size = (play_size < 0) ? 0 : play_size;
                 lseek(wav_info.fd, header_size + play_size, SEEK_SET);
 
-                drop_pcm();
+                drop_pcm(); //내부 버퍼에 저장된 PCM데이터를 모두 버림, 즉시 중단
+                set_hw_params(&wav_info); // 하드웨어 파라미터 설정 안하면, drop 이후 bad file descriptor 오류 발생, 아마 드랍시 드라이버가 하드웨어 초기화 하는 듯
                 pause_work_flag = FLAG_OFF;
             }
             continue;
@@ -403,13 +515,15 @@ static int init_pcm()
 {
     int ret = 0;
 
-    if ((ret = snd_pcm_open(&wav_info.pcm_handle, HW_PLAY_DEVICE, SND_PCM_STREAM_PLAYBACK, SND_PCM_ASYNC)) < 0)
+    audio_ctl.volume = 0.5;
+
+    if ((ret = snd_pcm_open(&wav_info.pcm_handle, HW_PLAY_DEVICE, SND_PCM_STREAM_PLAYBACK, SND_PCM_ASYNC)) < 0) // 논블록으로 열면 writei에서 언더런 발생, 이후 계속 언더런이 발생해서 음원 깨짐 (recover해도 깨짐)
     {
         printr("pcm open fail : %s", snd_strerror(ret));
         return -1;
     }
 
-    if (sem_init(&alsa_ctl.sem, 0, 1) < 0)
+    if (sem_init(&audio_ctl.sem, 0, 1) < 0)
     {
         printr("fail to init sem : %s", strerror(errno));
         return -1;
@@ -421,8 +535,8 @@ static int init_pcm()
 
 int start_playing_wav()
 {
-    set_alsa_flag(ALSA_START_FLAG, FLAG_ON);
-    set_alsa_flag(ALSA_PAUSE_FLAG, FLAG_OFF);
+    set_audio_flag(ALSA_START_FLAG, FLAG_ON);
+    set_audio_flag(ALSA_PAUSE_FLAG, FLAG_OFF);
     return 1;
 }
 
@@ -435,40 +549,40 @@ int restart_playing_wav()
 
 int pause_playing_wav()
 {
-    set_alsa_flag(ALSA_PAUSE_FLAG, FLAG_ON);
+    set_audio_flag(ALSA_PAUSE_FLAG, FLAG_ON);
     return 1;
 }
 
 int continue_playing_wav()
 {
-    set_alsa_flag(ALSA_PAUSE_FLAG, FLAG_OFF);
+    set_audio_flag(ALSA_PAUSE_FLAG, FLAG_OFF);
     return 1;
 }
 
 int abort_playing_wav()
 {
-    set_alsa_flag(ALSA_ABORT_FLAG, FLAG_ON);
+    set_audio_flag(ALSA_ABORT_FLAG, FLAG_ON);
     return 1;
 }
 
 int set_file_route(char *file_route)
 {
-    sem_wait(&alsa_ctl.sem);
-    strcpy(alsa_ctl.file_route, file_route);
-    sem_post(&alsa_ctl.sem);
+    sem_wait(&audio_ctl.sem);
+    strcpy(audio_ctl.file_route, file_route);
+    sem_post(&audio_ctl.sem);
 }
 
 int get_file_route(char *file_route, int file_route_size)
 {
-    if (file_route_size < sizeof(alsa_ctl.file_route))
+    if (file_route_size < sizeof(audio_ctl.file_route))
     {
         printr("file size is too small");
         return -1;
     }
 
-    sem_wait(&alsa_ctl.sem);
-    strcpy(file_route, alsa_ctl.file_route);
-    sem_post(&alsa_ctl.sem);
+    sem_wait(&audio_ctl.sem);
+    strcpy(file_route, audio_ctl.file_route);
+    sem_post(&audio_ctl.sem);
 
     return 1;
 }
@@ -479,18 +593,18 @@ void thread_wav_playing()
 
     while (1)
     {
-        if (get_alsa_flag(ALSA_START_FLAG) == FLAG_ON)
+        if (get_audio_flag(ALSA_START_FLAG) == FLAG_ON)
         {
             printd("시작");
             start_wav_conversion();
             drop_pcm();
-            set_alsa_flag(ALSA_START_FLAG, FLAG_OFF);
+            set_audio_flag(ALSA_START_FLAG, FLAG_OFF);
         }
-        else if (get_alsa_flag(ALSA_ABORT_FLAG) == FLAG_ON)
+        else if (get_audio_flag(ALSA_ABORT_FLAG) == FLAG_ON)
         {
             printd("중단");
             drop_pcm();
-            set_alsa_flag(ALSA_ABORT_FLAG, FLAG_OFF);
+            set_audio_flag(ALSA_ABORT_FLAG, FLAG_OFF);
         }
         usleep(1 * 1000);
     }

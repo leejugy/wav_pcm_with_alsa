@@ -5,7 +5,7 @@
 #include <alsa/asoundlib.h>
 
 #define HW_PLAY_DEVICE "plughw:0,0"
-#define WAV_RECOVER_DROP_SIZE 128 //wav 파일 drop 발생시 얼마만큼 뒤로 갈것인지
+#define WAV_RECOVER_DROP_SIZE 64 //wav 파일 drop 발생시 얼마만큼 뒤로 갈것인지
 
 typedef enum
 {
@@ -13,7 +13,7 @@ typedef enum
     ALSA_PAUSE_FLAG,
     ALSA_ABORT_FLAG,
     ALSA_FLAGS_MAX,
-}ALSA_FLAGS;
+}AUDIO_FLAGS;
 
 typedef struct __attribute__((__packed__))
 {
@@ -51,16 +51,19 @@ typedef struct
 
 typedef struct
 {
-    int alsa_flag[ALSA_FLAGS_MAX];
+    int audio_flag[ALSA_FLAGS_MAX];
     char file_route[256];
+    float volume;
     sem_t sem;
-}alsa_ctl_t;
+}audio_ctl_t;
 
 int start_playing_wav();
 int restart_playing_wav();
 int pause_playing_wav();
 int continue_playing_wav();
 int abort_playing_wav();
+void set_audio_volume(int audio_val);
+float get_audio_volume();
 
 int set_file_route(char *file_route);
 int get_file_route(char *file_route, int file_route_size);
