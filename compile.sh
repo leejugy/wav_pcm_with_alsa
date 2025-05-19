@@ -1,4 +1,4 @@
-source /opt/fsl-frdm-multimedia/environment-setup-armv8a-poky-linux
+source /opt/fsl-frdm93/environment-setup-armv8a-poky-linux
 
 export TARGET="main"
 export CFLAGS=""

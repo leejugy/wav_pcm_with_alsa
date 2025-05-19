@@ -85,6 +85,7 @@ static void thread_menu()
 
     while(1)
     {
+        usleep(100 * 1000);
         print_menu_list();
         memset(menu_num, 0, sizeof(menu_num));
         ret = scanf("%s", menu_num);

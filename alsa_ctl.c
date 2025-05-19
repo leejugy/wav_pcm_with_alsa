@@ -164,19 +164,18 @@ static int play_pcm(uint8_t *buf, size_t buf_size)
             {
                 printr("pcm write underrun : %s", snd_strerror(ret));
                 snd_pcm_recover(wav_info.pcm_handle, ret, 0);
-                snd_pcm_prepare(wav_info.pcm_handle);
+                return -1;
             }
             else if (ret == -ESTRPIPE) // 멈추거나 했을 경우 [snd_pcm_pause - 드라이버에 따라 구현 안됐을 수 있음]
             {
                 printr("pcm write suspend : %s", snd_strerror(ret));
                 snd_pcm_recover(wav_info.pcm_handle, ret, 0);
-                snd_pcm_prepare(wav_info.pcm_handle);
+                return -1;
             }
             else
             {
                 printr("pcm write : %s", snd_strerror(ret));
                 snd_pcm_recover(wav_info.pcm_handle, ret, 0);
-                snd_pcm_prepare(wav_info.pcm_handle);
                 return -1;
             }
         }
@@ -268,6 +267,11 @@ static int play_wav(int header_size, wav_file_header_u *header)
         return -1;
     }
 
+    if(system("clear") < 0)
+    {
+        printr("fail to clear : %s", strerror(errno));
+        return -1;
+    }
     printf_wav_info(header);
     printd("파라미터 설정 완료 [%s]", HW_PLAY_DEVICE);
     printd("헤더 크기 [%d], 재생 시작 [%s]", header_size, wav_info.file_route);
