@@ -30,9 +30,9 @@ static int printf_file(char *file_route, char *file_name)
 
         if (count % 6 == 5 && enter_flag == FLAG_ON)
         {
-            count = 0;
-            enter_flag = FLAG_OFF;
             sprintf(&dir_content[strlen(dir_content)], "\n");
+            enter_flag = FLAG_OFF;
+            count = 0;
         }
     }
 
