@@ -9,6 +9,7 @@ static int printf_file(char *file_route, char *file_name)
         0,
     };
     int count = 0;
+    int enter_flag = FLAG_OFF;
     DIR *dir = NULL;
     struct dirent *dir_info = NULL;
 
@@ -23,11 +24,14 @@ static int printf_file(char *file_route, char *file_name)
         if (strstr(dir_info->d_name, file_name) != 0)
         {
             sprintf(&dir_content[strlen(dir_content)], "%s ", dir_info->d_name);
+            enter_flag = FLAG_ON;
             count++;
         }
 
-        if ((count % 5) == 4)
+        if (count % 6 == 5 && enter_flag == FLAG_ON)
         {
+            count = 0;
+            enter_flag = FLAG_OFF;
             sprintf(&dir_content[strlen(dir_content)], "\n");
         }
     }
