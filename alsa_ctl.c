@@ -419,6 +419,7 @@ static int play_wav(int header_size, wav_file_header_u *header)
             printd("audio 재생 끝");
             print_cordinate("18", "1", "재생중[%ld%%]", (play_size * 100) / (int64_t)header->packet.sub_chunk2_size);
             play_pcm(data, len);
+            sleep(3);
             break;
         }
         else
@@ -598,6 +599,7 @@ void thread_wav_playing()
         {
             printd("시작");
             start_wav_conversion();
+            drop_pcm();
             set_audio_flag(ALSA_START_FLAG, FLAG_OFF);
         }
         else if (get_audio_flag(ALSA_ABORT_FLAG) == FLAG_ON)
