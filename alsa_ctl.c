@@ -243,7 +243,6 @@ static int play_pcm(uint8_t *buf, size_t buf_size)
     int ret = 0;
     int frame_size = 0;
     int frames = 0;
-    int loop = 0;
 
     if (get_audio_flag(ALSA_PAUSE_FLAG) == FLAG_ON)
     {
@@ -265,7 +264,7 @@ static int play_pcm(uint8_t *buf, size_t buf_size)
         {
             return 1;
         }
-        if ((ret = snd_pcm_writei(wav_info.pcm_handle, &buf[loop * frame_size], frames)) < 0)
+        if ((ret = snd_pcm_writei(wav_info.pcm_handle, buf, frames)) < 0)
         {
             if (ret == -EAGAIN) // 비동기 입력시 에러
             {
@@ -416,7 +415,9 @@ static int play_wav(int header_size, wav_file_header_u *header)
         else if (len < sizeof(data))
         {
             pause_work_flag = FLAG_ON;
+            play_size += len;
             printd("audio 재생 끝");
+            print_cordinate("18", "1", "재생중[%ld%%]", (play_size * 100) / (int64_t)header->packet.sub_chunk2_size);
             play_pcm(data, len);
             break;
         }
@@ -597,7 +598,6 @@ void thread_wav_playing()
         {
             printd("시작");
             start_wav_conversion();
-            drop_pcm();
             set_audio_flag(ALSA_START_FLAG, FLAG_OFF);
         }
         else if (get_audio_flag(ALSA_ABORT_FLAG) == FLAG_ON)
